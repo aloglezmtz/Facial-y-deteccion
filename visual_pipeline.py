@@ -1,8 +1,12 @@
 """
-Fase 1.B reutilizable - Análisis de emoción sobre una sola imagen (snapshot).
-Los imports pesados (opencv, mediapipe, deepface) están protegidos:
-si no están instalados, DISPONIBLE queda en False y el resto de la app
-sigue funcionando en modo solo-texto, sin romperse.
+Fase A - Pipeline Visual (versión responsable)
+Separa explícitamente tres capas:
+  1. rostro_detectado / calidad_deteccion  -> ¿se pudo medir algo, y qué tan bien?
+  2. senales_observables                   -> mediciones geométricas objetivas
+  3. interpretacion                        -> clasificación de emoción CON confianza,
+                                               presentada como estimación, no como hecho.
+Los imports pesados están protegidos: si faltan, DISPONIBLE=False y el resto
+de la app sigue funcionando en modo solo-texto.
 """
 
 DISPONIBLE = True
@@ -14,6 +18,7 @@ except ImportError:
     DISPONIBLE = False
 
 from emociones_config import MAPEO_VISUAL, EMOCIONES
+from facial_features import extraer_senales
 
 if DISPONIBLE:
     _mp_face_mesh = mp.solutions.face_mesh
@@ -36,39 +41,71 @@ def _extraer_roi(frame_bgr, landmarks, padding=20):
     return frame_bgr[y_min:y_max, x_min:x_max]
 
 
-def analizar_imagen(frame_bgr):
+def analizar_imagen(frame_bgr, analizador_temporal=None):
     """
-    Recibe un frame BGR (numpy array) y devuelve:
-    - vector_visual: dict {emocion_comun: prob 0-1}, o None si no se detectó rostro
-    - rostro_detectado: bool
+    Recibe un frame BGR y devuelve un diccionario estructurado:
+    {
+        "rostro_detectado": bool,
+        "calidad_deteccion": "buena" | "sin_rostro" | "roi_invalida" | "clasificacion_fallida",
+        "senales_observables": {...} | None,
+        "interpretacion": {
+            "vector_probabilidades": {emocion: prob} | None,
+            "emocion_dominante": str | None,
+            "confianza": float,
+        },
+        "analisis_temporal": {...}  (si se pasó un AnalizadorTemporal)
+    }
     """
     if not DISPONIBLE:
-        return None, False
+        return {"rostro_detectado": False, "calidad_deteccion": "librerias_no_instaladas",
+                "senales_observables": None, "interpretacion": None}
 
     rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
     resultados = _face_mesh.process(rgb)
 
     if not resultados.multi_face_landmarks:
-        return None, False
+        return {"rostro_detectado": False, "calidad_deteccion": "sin_rostro",
+                "senales_observables": None, "interpretacion": None}
 
     landmarks = resultados.multi_face_landmarks[0]
+    senales = extraer_senales(landmarks, frame_bgr.shape)
     roi = _extraer_roi(frame_bgr, landmarks)
 
+    interpretacion = {"vector_probabilidades": None, "emocion_dominante": None, "confianza": 0.0}
+    calidad = "buena"
+
     if roi.size == 0:
-        return None, True
+        calidad = "roi_invalida"
+    else:
+        try:
+            resultado = DeepFace.analyze(roi, actions=["emotion"], enforce_detection=False, silent=True)
+            if isinstance(resultado, list):
+                resultado = resultado[0]
+            probs_originales = resultado["emotion"]
+            vector = {e: 0.0 for e in EMOCIONES}
+            for etiqueta, valor in probs_originales.items():
+                comun = MAPEO_VISUAL.get(etiqueta)
+                if comun:
+                    vector[comun] = valor / 100.0
+            emocion_dominante = max(vector, key=vector.get)
+            interpretacion = {
+                "vector_probabilidades": vector,
+                "emocion_dominante": emocion_dominante,
+                "confianza": vector[emocion_dominante],
+            }
+        except Exception:
+            calidad = "clasificacion_fallida"
 
-    try:
-        resultado = DeepFace.analyze(roi, actions=["emotion"], enforce_detection=False, silent=True)
-        if isinstance(resultado, list):
-            resultado = resultado[0]
+    resultado_final = {
+        "rostro_detectado": True,
+        "calidad_deteccion": calidad,
+        "senales_observables": senales,
+        "interpretacion": interpretacion,
+    }
 
-        probs_originales = resultado["emotion"]  # claves en inglés, valores 0-100
-        vector = {e: 0.0 for e in EMOCIONES}
-        for etiqueta, valor in probs_originales.items():
-            comun = MAPEO_VISUAL.get(etiqueta)
-            if comun:
-                vector[comun] = valor / 100.0
-        return vector, True
+    if analizador_temporal is not None and interpretacion["emocion_dominante"]:
+        resultado_final["analisis_temporal"] = analizador_temporal.registrar(
+            senales, interpretacion["emocion_dominante"], interpretacion["confianza"]
+        )
 
-    except Exception:
-        return None, True
+    return resultado_final

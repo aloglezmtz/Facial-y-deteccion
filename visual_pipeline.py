@@ -5,22 +5,22 @@ Separa explícitamente tres capas:
   2. senales_observables                   -> mediciones geométricas objetivas
   3. interpretacion                        -> clasificación de emoción CON confianza,
                                                presentada como estimación, no como hecho.
-Los imports pesados están protegidos: si faltan, DISPONIBLE=False y el resto
-de la app sigue funcionando en modo solo-texto.
+Los imports pesados y la inicialización de MediaPipe están protegidos con un
+try/except AMPLIO (no solo ImportError): si CUALQUIER cosa falla al cargar
+-- falta la librería, o está instalada pero rota/incompatible con la versión
+de Python del servidor, como el AttributeError conocido de `mp.solutions` en
+mediapipe 0.10.3x -- DISPONIBLE queda en False y el resto de la app (chat de
+texto, detección de crisis) sigue funcionando con normalidad. Una falla en
+el canal visual OPCIONAL nunca debe tumbar la app completa.
 """
 
 DISPONIBLE = True
+_MOTIVO_NO_DISPONIBLE = None
 try:
     import cv2
     import mediapipe as mp
     from deepface import DeepFace
-except ImportError:
-    DISPONIBLE = False
 
-from emociones_config import MAPEO_VISUAL, EMOCIONES
-from facial_features import extraer_senales
-
-if DISPONIBLE:
     _mp_face_mesh = mp.solutions.face_mesh
     _face_mesh = _mp_face_mesh.FaceMesh(
         max_num_faces=1,
@@ -28,6 +28,12 @@ if DISPONIBLE:
         min_detection_confidence=0.5,
         min_tracking_confidence=0.5,
     )
+except Exception as _error_inicializacion:
+    DISPONIBLE = False
+    _MOTIVO_NO_DISPONIBLE = str(_error_inicializacion)
+
+from emociones_config import MAPEO_VISUAL, EMOCIONES
+from facial_features import extraer_senales
 
 
 def _extraer_roi(frame_bgr, landmarks, padding=20):

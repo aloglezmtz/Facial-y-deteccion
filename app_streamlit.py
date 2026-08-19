@@ -211,10 +211,18 @@ with tab_chat:
         if visual_pipeline.DISPONIBLE:
             foto = st.camera_input("Toma una foto de tu rostro", label_visibility="collapsed")
         else:
-            st.warning(
-                "El canal visual requiere `opencv-python`, `mediapipe` y `deepface`. Instálalos con:\n\n"
-                "`pip install opencv-python mediapipe deepface tensorflow==2.15.0 tf-keras`"
-            )
+            motivo = getattr(visual_pipeline, "_MOTIVO_NO_DISPONIBLE", None)
+            if motivo:
+                st.warning(
+                    "El canal visual no está disponible en este servidor (el chat de texto "
+                    "sigue funcionando con normalidad).\n\n"
+                    f"Detalle técnico: `{motivo}`"
+                )
+            else:
+                st.warning(
+                    "El canal visual requiere `opencv-python`, `mediapipe` y `deepface`. Instálalos con:\n\n"
+                    "`pip install opencv-python mediapipe deepface tensorflow==2.15.0 tf-keras`"
+                )
             camara_disponible = False
 
     st.divider()

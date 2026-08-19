@@ -1,0 +1,1 @@
+descargar dependencias donde se va a correr y en el readme instrucciones de descarga lbrerias orden de descarga instructivo

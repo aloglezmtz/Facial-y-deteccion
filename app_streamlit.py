@@ -4,12 +4,13 @@ Chat persistente (SQLite) reorganizado en pestañas: Chat / Mi ánimo / Detalles
 El chat queda limpio y protagonista; lo técnico está disponible sin saturar.
 """
 
+import uuid
 import numpy as np
 import streamlit as st
 import streamlit.components.v1 as components
 from texto_emocion import AnalizadorEmocionTexto
 from fusion import fusionar
-from emociones_config import EMOJIS_GATO, PALETA_UI
+from emociones_config import EMOJIS_GATO, PALETA_UI, COLOR_HERRAMIENTAS, COLOR_GATO
 from gatito_widget import generar_gatito_html
 import visual_pipeline
 from temporal_analysis import AnalizadorTemporal
@@ -19,21 +20,131 @@ st.set_page_config(page_title="Gatitos Emocionales", page_icon="🐾", layout="c
 
 st.markdown(f"""
 <style>
-    .stApp {{ background: linear-gradient(180deg, {PALETA_UI['fondo_inicio']} 0%, {PALETA_UI['fondo_fin']} 100%); }}
-    h1, h2, h3, p, span, label {{ color: {PALETA_UI['texto_principal']} !important; }}
-    div[data-testid="stChatMessage"] {{
-        background-color: {PALETA_UI['tarjeta']}; border-radius: 18px; padding: 6px 10px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700;800&display=swap');
+
+    html, body, [class*="css"] {{ font-family: 'Nunito', sans-serif; }}
+    h1, h2, h3 {{ font-family: 'Fredoka', sans-serif !important; letter-spacing: 0.2px; }}
+
+    .stApp {{
+        background: linear-gradient(180deg, {PALETA_UI['fondo_inicio']} 0%, {PALETA_UI['fondo_fin']} 100%);
     }}
-    .stToggle, .stMetric {{ background-color: {PALETA_UI['tarjeta']}; border-radius: 14px; padding: 8px; }}
-    .stTabs [data-baseweb="tab-list"] {{ gap: 4px; }}
+    h1, h2, h3, p, span, label, .stMarkdown {{ color: {PALETA_UI['texto_principal']} !important; }}
+    [data-testid="stCaptionContainer"], .stCaption {{ color: {PALETA_UI['texto_secundario']} !important; }}
+
+    /* Bloquea el ancho para que se vea bien tipo "app" en escritorio y celular */
+    .block-container {{ max-width: 640px; padding-top: 1.2rem; padding-bottom: 5rem; }}
+
+    /* ---------- Tarjeta del gatito (encabezado) ---------- */
+    .tarjeta-gatito {{
+        background: {PALETA_UI['tarjeta']};
+        border: 1px solid {PALETA_UI['tarjeta_borde']};
+        border-radius: 28px;
+        padding: 4px 16px 14px 16px;
+        box-shadow: 0 8px 24px {PALETA_UI['sombra']};
+        margin-bottom: 18px;
+        text-align: center;
+    }}
+    .titulo-app {{
+        font-family: 'Fredoka', sans-serif;
+        font-size: 1.5rem;
+        font-weight: 600;
+        margin: 10px 0 0 0;
+    }}
+    .badge-animo {{
+        display: inline-flex; align-items: center; gap: 6px;
+        background: {PALETA_UI['acento_suave']};
+        color: {PALETA_UI['texto_principal']} !important;
+        font-family: 'Fredoka', sans-serif; font-weight: 600; font-size: 0.95rem;
+        padding: 6px 18px; border-radius: 999px; margin-top: 4px;
+    }}
+
+    /* ---------- Chat (estilo Yana: burbuja + avatar en aro) ---------- */
+    div[data-testid="stChatMessage"] {{
+        background-color: {PALETA_UI['burbuja_asistente']};
+        border: 1px solid {PALETA_UI['tarjeta_borde']};
+        border-radius: 20px; padding: 10px 14px;
+        box-shadow: 0 2px 10px {PALETA_UI['sombra']};
+        animation: aparecer 0.25s ease-out;
+    }}
+    div[data-testid="stChatMessage"] p {{ color: {PALETA_UI['texto_principal']} !important; }}
+    div[data-testid="stChatMessage"]:has(> [data-testid="stChatMessageAvatarUser"]) {{
+        background-color: {PALETA_UI['burbuja_usuario']};
+        border-color: {PALETA_UI['burbuja_usuario']};
+    }}
+    div[data-testid="stChatMessage"]:has(> [data-testid="stChatMessageAvatarUser"]) p {{
+        color: white !important;
+    }}
+    [data-testid="stChatMessageAvatarCustom"], [data-testid="stChatMessageAvatarUser"] {{
+        border: 2.5px solid {PALETA_UI['acento_suave']} !important;
+    }}
+    @keyframes aparecer {{
+        from {{ opacity: 0; transform: translateY(6px); }}
+        to {{ opacity: 1; transform: translateY(0); }}
+    }}
+
+    /* ---------- Caja de Gatitos (grid de herramientas) ---------- */
+    .grid-herramientas {{ display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 6px; }}
+    .tarjeta-herramienta {{
+        border-radius: 20px; padding: 16px 10px; text-align: center;
+        box-shadow: 0 2px 8px {PALETA_UI['sombra']};
+        font-family: 'Fredoka', sans-serif; font-weight: 600; color: {PALETA_UI['texto_principal']};
+        font-size: 0.92rem; line-height: 1.3;
+    }}
+    .tarjeta-herramienta .icono {{ font-size: 1.8rem; display: block; margin-bottom: 6px; }}
+
+    /* ---------- Ánimo: carita grande ---------- */
+    .carita-animo {{
+        width: 130px; height: 130px; border-radius: 50%; margin: 8px auto 10px auto;
+        display: flex; align-items: center; justify-content: center; font-size: 3.2rem;
+        box-shadow: 0 6px 18px {PALETA_UI['sombra']};
+    }}
+    .etiqueta-teal {{
+        color: {PALETA_UI['acento_secundario']} !important; font-family: 'Fredoka', sans-serif;
+        font-weight: 600; font-size: 0.9rem;
+    }}
+
+    /* ---------- Controles ---------- */
+    .stToggle, .stMetric {{
+        background-color: {PALETA_UI['tarjeta']}; border: 1px solid {PALETA_UI['tarjeta_borde']};
+        border-radius: 16px; padding: 10px;
+    }}
+    .stButton > button, .stChatInput {{ border-radius: 999px !important; }}
+    .stButton > button {{
+        background-color: {PALETA_UI['acento']} !important; color: white !important;
+        border: none !important; font-family: 'Fredoka', sans-serif; font-weight: 600;
+    }}
+    .stButton > button:hover {{ filter: brightness(1.06); }}
+
+    /* ---------- Pestañas tipo píldora ---------- */
+    .stTabs [data-baseweb="tab-list"] {{
+        gap: 6px; background: {PALETA_UI['acento_suave']}; padding: 5px; border-radius: 999px;
+    }}
     .stTabs [data-baseweb="tab"] {{
-        background-color: {PALETA_UI['tarjeta']}; border-radius: 12px 12px 0 0; padding: 8px 16px;
+        background-color: transparent; border-radius: 999px; padding: 8px 14px;
+        font-family: 'Fredoka', sans-serif; font-weight: 600;
+    }}
+    .stTabs [aria-selected="true"] {{
+        background-color: {PALETA_UI['tarjeta']} !important;
+        box-shadow: 0 2px 6px {PALETA_UI['sombra']};
     }}
 </style>
 """, unsafe_allow_html=True)
 
 db.inicializar_db()
+
+# ---------------------------------------------------------
+# Identidad anónima por navegador: cada usuario obtiene un
+# session_id propio, guardado en la URL para sobrevivir a
+# recargas de página. Nunca se comparte entre usuarios.
+# ---------------------------------------------------------
+if "session_id" not in st.session_state:
+    sid_en_url = st.query_params.get("sid")
+    if not sid_en_url:
+        sid_en_url = str(uuid.uuid4())
+        st.query_params["sid"] = sid_en_url
+    st.session_state.session_id = sid_en_url
+
+sid = st.session_state.session_id
 
 
 @st.cache_resource
@@ -44,7 +155,7 @@ def cargar_analizador_texto():
 analizador_texto = cargar_analizador_texto()
 
 if "historial_chat" not in st.session_state:
-    st.session_state.historial_chat = db.cargar_chat()
+    st.session_state.historial_chat = db.cargar_chat(sid)
 if "emocion_actual" not in st.session_state:
     ultimos = st.session_state.historial_chat
     st.session_state.emocion_actual = ultimos[-1]["emocion"] if ultimos else "neutral"
@@ -56,15 +167,18 @@ if "ultimo_resultado_visual" not in st.session_state:
 # ---------------------------------------------------------
 # Encabezado siempre visible: gatito + estado actual
 # ---------------------------------------------------------
-st.markdown("<h1 style='text-align:center;'>🐾 Tu Gatito Emocional</h1>", unsafe_allow_html=True)
-components.html(generar_gatito_html(st.session_state.emocion_actual), height=220)
+st.markdown('<div class="tarjeta-gatito">', unsafe_allow_html=True)
+st.markdown('<p class="titulo-app">🐾 Tu Gatito Emocional</p>', unsafe_allow_html=True)
+components.html(generar_gatito_html(st.session_state.emocion_actual), height=210)
 st.markdown(
-    f"<p style='text-align:center; font-size:18px; font-weight:600;'>"
-    f"{EMOJIS_GATO.get(st.session_state.emocion_actual, '😺')}  {st.session_state.emocion_actual.capitalize()}</p>",
+    f'<span class="badge-animo">{EMOJIS_GATO.get(st.session_state.emocion_actual, "😺")} '
+    f'{st.session_state.emocion_actual.capitalize()}</span>',
     unsafe_allow_html=True
 )
+st.markdown('</div>', unsafe_allow_html=True)
 
-tab_chat, tab_animo, tab_tecnico = st.tabs(["💬 Chat", "📊 Mi ánimo", "🔍 Detalles técnicos"])
+tab_chat, tab_animo, tab_caja, tab_tecnico = st.tabs(
+    ["💬 Chat", "📊 Mi ánimo", "🧰 Caja de Gatitos", "🔍 Detalles técnicos"])
 
 # ===========================================================
 # PESTAÑA 1: CHAT — protagonista, sin ruido técnico
@@ -149,9 +263,9 @@ with tab_chat:
             st.session_state.historial_chat.append(
                 {"rol": "assistant", "texto": respuesta, "emocion": emocion_final})
 
-            db.guardar_mensaje("user", texto_usuario, emocion_final, confianza / 100,
+            db.guardar_mensaje(sid, "user", texto_usuario, emocion_final, confianza / 100,
                                 usar_camara_en_fusion, senales_para_guardar, calidad_para_guardar)
-            db.guardar_mensaje("assistant", respuesta, emocion_final, confianza / 100, usar_camara_en_fusion)
+            db.guardar_mensaje(sid, "assistant", respuesta, emocion_final, confianza / 100, usar_camara_en_fusion)
 
         st.rerun()
 
@@ -159,30 +273,68 @@ with tab_chat:
 # PESTAÑA 2: MI ÁNIMO — tendencia histórica
 # ===========================================================
 with tab_animo:
-    total_mensajes = db.contar_mensajes_usuario()
+    total_mensajes = db.contar_mensajes_usuario(sid)
     if total_mensajes == 0:
         st.info("Todavía no hay suficientes mensajes para mostrar tendencias. ¡Escríbele algo a tu gatito!")
     else:
-        mas_frecuente = db.emocion_mas_frecuente()
+        mas_frecuente = db.emocion_mas_frecuente(sid)
+        color_carita = COLOR_GATO.get(mas_frecuente, COLOR_GATO["neutral"])
+
+        st.markdown(
+            f'<div class="carita-animo" style="background:{color_carita}22;">'
+            f'{EMOJIS_GATO.get(mas_frecuente, "😺")}</div>'
+            f'<p style="text-align:center; font-family:\'Fredoka\',sans-serif; font-weight:600; '
+            f'font-size:1.1rem; margin-top:-4px;">{mas_frecuente.capitalize()}</p>',
+            unsafe_allow_html=True
+        )
+
         colA, colB = st.columns(2)
         colA.metric("Emoción más frecuente", f"{EMOJIS_GATO.get(mas_frecuente,'😺')} {mas_frecuente}")
         colB.metric("Mensajes registrados", total_mensajes)
 
-        serie = db.serie_para_grafica()
+        serie = db.serie_para_grafica(sid)
         if len(serie) >= 2:
-            st.markdown("**Evolución de tu ánimo:**")
+            st.markdown('<div class="tarjeta-gatito" style="text-align:left;">', unsafe_allow_html=True)
+            st.markdown('<span class="etiqueta-teal">📈 Evolución de tu ánimo</span>', unsafe_allow_html=True)
             st.line_chart(serie)
+            st.markdown('</div>', unsafe_allow_html=True)
         else:
             st.caption("Escribe algunos mensajes más para ver la gráfica de tendencia.")
 
         st.divider()
         st.markdown("##### Privacidad")
-        st.caption("Tus datos se guardan localmente en tu computadora (`gora_local.db`). Nunca se envían a un servidor externo.")
+        st.caption("Tu historial es privado: solo tú puedes verlo, identificado de forma anónima por tu sesión "
+                    "de navegador. Se guarda en una base de datos en la nube (Render) para que sobreviva a "
+                    "recargas, pero nunca se comparte con otros usuarios.")
         if st.button("🗑️ Borrar todo mi historial", type="secondary"):
-            db.borrar_todo()
+            db.borrar_todo(sid)
             st.session_state.historial_chat = []
             st.session_state.emocion_actual = "neutral"
             st.rerun()
+
+# ===========================================================
+# PESTAÑA 3: CAJA DE GATITOS — herramientas de bienestar
+# ===========================================================
+with tab_caja:
+    st.markdown(
+        "<p style='text-align:center; color:#9C8676; margin-bottom:14px;'>"
+        "¿En qué quieres trabajar hoy?</p>", unsafe_allow_html=True
+    )
+    herramientas = [
+        ("🌻", "Autoestima"), ("☁️", "Ansiedad y estrés"),
+        ("🎐", "Respiración"), ("💛", "Relaciones"),
+        ("🌙", "Sueño"), ("🔋", "Energía"),
+    ]
+    html_grid = '<div class="grid-herramientas">'
+    for i, (icono, nombre) in enumerate(herramientas):
+        color = COLOR_HERRAMIENTAS[i % len(COLOR_HERRAMIENTAS)]
+        html_grid += (
+            f'<div class="tarjeta-herramienta" style="background:{color};">'
+            f'<span class="icono">{icono}</span>{nombre}</div>'
+        )
+    html_grid += '</div>'
+    st.markdown(html_grid, unsafe_allow_html=True)
+    st.caption("🚧 Las actividades guiadas (como respiración) se activan en el siguiente paso.")
 
 # ===========================================================
 # PESTAÑA 3: DETALLES TÉCNICOS — señal vs. interpretación

@@ -15,6 +15,7 @@ from gatito_widget import generar_gatito_html
 import visual_pipeline
 from temporal_analysis import AnalizadorTemporal
 import database as db
+from herramientas import CATEGORIAS, herramientas_por_categoria, obtener_herramienta
 
 st.set_page_config(page_title="Gatitos Emocionales", page_icon="🐾", layout="centered")
 
@@ -163,6 +164,10 @@ if "analizador_temporal" not in st.session_state:
     st.session_state.analizador_temporal = AnalizadorTemporal()
 if "ultimo_resultado_visual" not in st.session_state:
     st.session_state.ultimo_resultado_visual = None
+if "categoria_activa" not in st.session_state:
+    st.session_state.categoria_activa = None
+if "herramienta_activa" not in st.session_state:
+    st.session_state.herramienta_activa = None
 
 # ---------------------------------------------------------
 # Encabezado siempre visible: gatito + estado actual
@@ -316,25 +321,73 @@ with tab_animo:
 # PESTAÑA 3: CAJA DE GATITOS — herramientas de bienestar
 # ===========================================================
 with tab_caja:
-    st.markdown(
-        "<p style='text-align:center; color:#9C8676; margin-bottom:14px;'>"
-        "¿En qué quieres trabajar hoy?</p>", unsafe_allow_html=True
-    )
-    herramientas = [
-        ("🌻", "Autoestima"), ("☁️", "Ansiedad y estrés"),
-        ("🎐", "Respiración"), ("💛", "Relaciones"),
-        ("🌙", "Sueño"), ("🔋", "Energía"),
-    ]
-    html_grid = '<div class="grid-herramientas">'
-    for i, (icono, nombre) in enumerate(herramientas):
-        color = COLOR_HERRAMIENTAS[i % len(COLOR_HERRAMIENTAS)]
-        html_grid += (
-            f'<div class="tarjeta-herramienta" style="background:{color};">'
-            f'<span class="icono">{icono}</span>{nombre}</div>'
+    cat_activa = st.session_state.categoria_activa
+    herr_activa = st.session_state.herramienta_activa
+
+    # --- Vista 3: detalle de una herramienta (pasos + cierre) ---
+    if herr_activa:
+        h = obtener_herramienta(herr_activa)
+        if st.button("← Volver a la lista"):
+            st.session_state.herramienta_activa = None
+            st.rerun()
+
+        st.markdown(f"### {h['titulo']}")
+        st.caption(f"{h['tipo']} · {h['duracion']}")
+        st.write(h["descripcion"])
+        st.divider()
+        for i, paso in enumerate(h["pasos"], start=1):
+            st.markdown(f"**{i}.** {paso}")
+        if h["cierre"]:
+            st.info(h["cierre"])
+
+        if st.button("✅ Hecho, gracias", type="primary", use_container_width=True):
+            db.registrar_uso_herramienta(sid, h["id"], h["categoria"])
+            st.success("Guardado. Puedes volver cuando quieras.")
+
+    # --- Vista 2: lista de herramientas de una categoría ---
+    elif cat_activa:
+        info_cat = CATEGORIAS[cat_activa]
+        if st.button("← Volver a categorías"):
+            st.session_state.categoria_activa = None
+            st.rerun()
+
+        st.markdown(f"### {info_cat['icono']} {info_cat['nombre']}")
+        for h in herramientas_por_categoria(cat_activa):
+            with st.container(border=True):
+                col1, col2 = st.columns([4, 1])
+                with col1:
+                    st.markdown(f"**{h['titulo']}**")
+                    st.caption(f"{h['descripcion']} · {h['tipo']} · {h['duracion']}")
+                with col2:
+                    if st.button("Abrir", key=f"abrir_{h['id']}", use_container_width=True):
+                        st.session_state.herramienta_activa = h["id"]
+                        st.rerun()
+
+    # --- Vista 1: grid de categorías ---
+    else:
+        st.markdown(
+            "<p style='text-align:center; color:#9C8676; margin-bottom:14px;'>"
+            "¿En qué quieres trabajar hoy?</p>", unsafe_allow_html=True
         )
-    html_grid += '</div>'
-    st.markdown(html_grid, unsafe_allow_html=True)
-    st.caption("🚧 Las actividades guiadas (como respiración) se activan en el siguiente paso.")
+        claves_categorias = list(CATEGORIAS.keys())
+        for fila_inicio in range(0, len(claves_categorias), 2):
+            cols = st.columns(2)
+            for offset, col in enumerate(cols):
+                idx = fila_inicio + offset
+                if idx >= len(claves_categorias):
+                    continue
+                clave = claves_categorias[idx]
+                info = CATEGORIAS[clave]
+                color = COLOR_HERRAMIENTAS[idx % len(COLOR_HERRAMIENTAS)]
+                with col:
+                    st.markdown(
+                        f'<div class="tarjeta-herramienta" style="background:{color};">'
+                        f'<span class="icono">{info["icono"]}</span>{info["nombre"]}</div>',
+                        unsafe_allow_html=True
+                    )
+                    if st.button("Ver", key=f"cat_{clave}", use_container_width=True):
+                        st.session_state.categoria_activa = clave
+                        st.rerun()
 
 # ===========================================================
 # PESTAÑA 3: DETALLES TÉCNICOS — señal vs. interpretación

@@ -82,6 +82,18 @@ def inicializar_db():
                 )
             """)
 
+            # 3. Tabla de uso de herramientas (Caja de Gatitos)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS uso_herramientas (
+                    id SERIAL PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    herramienta_id TEXT NOT NULL,
+                    categoria TEXT NOT NULL,
+                    timestamp TEXT NOT NULL
+                )
+            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_uso_session ON uso_herramientas(session_id)")
+
 
 def guardar_mensaje(session_id, rol, texto, emocion_estimada=None, confianza=None,
                      camara_usada=False, senales_observables=None, calidad_deteccion=None):
@@ -162,6 +174,29 @@ def contar_mensajes_usuario(session_id):
             return cur.fetchone()["total"]
 
 
+def registrar_uso_herramienta(session_id, herramienta_id, categoria):
+    with _conexion() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO uso_herramientas (session_id, herramienta_id, categoria, timestamp)
+                   VALUES (%s, %s, %s, %s)""",
+                (session_id, herramienta_id, categoria,
+                 datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            )
+
+
+def usos_por_categoria(session_id):
+    """Cuántas veces se usó cada categoría — sirve de contexto para el chat más adelante."""
+    with _conexion() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """SELECT categoria, COUNT(*) as total FROM uso_herramientas
+                   WHERE session_id = %s GROUP BY categoria ORDER BY total DESC""",
+                (session_id,)
+            )
+            return {f["categoria"]: f["total"] for f in cur.fetchall()}
+
+
 def borrar_todo(session_id):
     """Borra SOLO los datos de esta sesión (derecho de privacidad del usuario sobre sus propios datos)."""
     with _conexion() as conn:
@@ -172,3 +207,4 @@ def borrar_todo(session_id):
                 (session_id,)
             )
             cur.execute("DELETE FROM mensajes WHERE session_id = %s", (session_id,))
+            cur.execute("DELETE FROM uso_herramientas WHERE session_id = %s", (session_id,))

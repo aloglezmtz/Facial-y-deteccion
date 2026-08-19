@@ -2,21 +2,37 @@
 Fase B - Persistencia en PostgreSQL (Render Cloud)
 Reemplaza la base de datos local SQLite por una base de datos segura en la nube.
 Sobrevive a reinicios del servidor de Streamlit y centraliza los datos en internet.
+
+La URL de conexión NUNCA va escrita en este archivo: se lee desde
+st.secrets, que Streamlit Cloud provee de forma segura (Settings > Secrets
+en el dashboard de tu app) y que en local vive en .streamlit/secrets.toml
+(archivo que debe estar en tu .gitignore, para que nunca se suba a git).
 """
 
+import streamlit as st
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import json
 from datetime import datetime
 from contextlib import contextmanager
 
-# 🌐 PEGA AQUÍ TU URL EXTERNA DE RENDER COMPLETA:
-DATABASE_URL = "postgresql://aggm:G8Oi7BLdKvw4gT8hgD4ASarZ14o4TTUg@dpg-da2e1nr7uimc73a5b290-a.oregon-postgres.render.com/gora_db"
+
+def _obtener_database_url():
+    try:
+        return st.secrets["DATABASE_URL"]
+    except (KeyError, FileNotFoundError):
+        raise RuntimeError(
+            "No se encontró DATABASE_URL en st.secrets. "
+            "En Streamlit Cloud: Settings > Secrets, agrega:\n"
+            'DATABASE_URL = "postgresql://usuario:password@host/db"\n'
+            "En local: crea .streamlit/secrets.toml con la misma línea "
+            "(y agrega esa carpeta a tu .gitignore)."
+        )
+
 
 @contextmanager
 def _conexion():
-    # Conexión directa a los servidores seguros de Render
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = psycopg2.connect(_obtener_database_url())
     try:
         yield conn
         conn.commit()
@@ -30,7 +46,7 @@ def _conexion():
 def inicializar_db():
     with _conexion() as conn:
         with conn.cursor() as cur:
-            # 1. Tabla de mensajes (Se cambió AUTOINCREMENT por SERIAL)
+            # 1. Tabla de mensajes
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS mensajes (
                     id SERIAL PRIMARY KEY,
@@ -61,7 +77,6 @@ def guardar_mensaje(rol, texto, emocion_estimada=None, confianza=None,
                      camara_usada=False, senales_observables=None, calidad_deteccion=None):
     with _conexion() as conn:
         with conn.cursor() as cur:
-            # En Postgres usamos %s y RETURNING id para capturar la llave generada
             cur.execute(
                 """INSERT INTO mensajes (rol, texto, emocion_estimada, confianza, camara_usada, timestamp)
                    VALUES (%s, %s, %s, %s, %s, %s) RETURNING id""",

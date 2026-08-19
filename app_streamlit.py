@@ -16,6 +16,7 @@ import visual_pipeline
 from temporal_analysis import AnalizadorTemporal
 import database as db
 from herramientas import CATEGORIAS, herramientas_por_categoria, obtener_herramienta
+import deteccion_crisis
 
 st.set_page_config(page_title="Gatitos Emocionales", page_icon="🐾", layout="centered")
 
@@ -182,6 +183,12 @@ st.markdown(
 )
 st.markdown('</div>', unsafe_allow_html=True)
 
+# Acceso permanente a recursos de ayuda -- no solo reactivo ante una alerta.
+# Colapsado por defecto para no saturar la pantalla de la mayoría de sesiones,
+# pero siempre disponible sin importar la pestaña en la que esté el usuario.
+with st.expander("🆘 ¿Necesitas ayuda ahora?"):
+    st.markdown(deteccion_crisis.texto_recursos_siempre_visibles())
+
 tab_chat, tab_animo, tab_caja, tab_tecnico = st.tabs(
     ["💬 Chat", "📊 Mi ánimo", "🧰 Caja de Gatitos", "🔍 Detalles técnicos"])
 
@@ -223,6 +230,15 @@ with tab_chat:
 
     if texto_usuario:
         with st.spinner("El gatito está pensando... 🐾"):
+            # ---------------------------------------------------------
+            # Capa de seguridad: se evalúa PRIMERO y de forma independiente
+            # del análisis de emoción, que no está diseñado para detectar
+            # riesgo. Si hay señales de crisis, la respuesta del gatito se
+            # reemplaza por contención + recursos reales, sin preguntas que
+            # profundicen el momento difícil.
+            # ---------------------------------------------------------
+            riesgo = deteccion_crisis.evaluar_riesgo(texto_usuario)
+
             emocion_texto, vector_texto = analizador_texto.analizar(texto_usuario)
 
             vector_visual = None
@@ -256,21 +272,32 @@ with tab_chat:
                 {"rol": "user", "texto": texto_usuario, "emocion": emocion_final})
 
             confianza = vector_fusionado[emocion_final] * 100
-            respuesta = (f"Detecto señales asociadas principalmente a **{emocion_final}** "
-                         f"(confianza estimada: {confianza:.0f}%) {EMOJIS_GATO.get(emocion_final,'😺')}")
 
-            if camara_disponible and resultado_visual and not resultado_visual["rostro_detectado"]:
-                respuesta += "\n\n😿 *No se detectó tu rostro en la foto, la estimación usó solo el texto.*"
-            if incongruencia:
-                respuesta += ("\n\n😼 *Se detectó una diferencia entre las señales faciales y el texto. "
-                               "Puede deberse a distintas razones.*")
+            if riesgo["hay_riesgo"]:
+                # La respuesta normal (confianza, incongruencia, etc.) queda
+                # en segundo plano: en un momento de crisis, lo prioritario
+                # es contención y recursos, no una lectura de confianza.
+                respuesta = deteccion_crisis.mensaje_apoyo_crisis()
+            else:
+                respuesta = (f"Detecto señales asociadas principalmente a **{emocion_final}** "
+                             f"(confianza estimada: {confianza:.0f}%) {EMOJIS_GATO.get(emocion_final,'😺')}")
+
+                if camara_disponible and resultado_visual and not resultado_visual["rostro_detectado"]:
+                    respuesta += "\n\n😿 *No se detectó tu rostro en la foto, la estimación usó solo el texto.*"
+                if incongruencia:
+                    respuesta += ("\n\n😼 *Se detectó una diferencia entre las señales faciales y el texto. "
+                                   "Puede deberse a distintas razones.*")
 
             st.session_state.historial_chat.append(
                 {"rol": "assistant", "texto": respuesta, "emocion": emocion_final})
 
-            db.guardar_mensaje(sid, "user", texto_usuario, emocion_final, confianza / 100,
-                                usar_camara_en_fusion, senales_para_guardar, calidad_para_guardar)
+            id_mensaje_usuario = db.guardar_mensaje(
+                sid, "user", texto_usuario, emocion_final, confianza / 100,
+                usar_camara_en_fusion, senales_para_guardar, calidad_para_guardar)
             db.guardar_mensaje(sid, "assistant", respuesta, emocion_final, confianza / 100, usar_camara_en_fusion)
+
+            if riesgo["hay_riesgo"]:
+                db.registrar_alerta_crisis(sid, id_mensaje_usuario, riesgo["nivel"])
 
         st.rerun()
 

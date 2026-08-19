@@ -94,6 +94,22 @@ def inicializar_db():
             """)
             cur.execute("CREATE INDEX IF NOT EXISTS idx_uso_session ON uso_herramientas(session_id)")
 
+            # 4. Tabla de alertas de crisis (detección de riesgo en texto)
+            # Solo guarda nivel y timestamp -- el texto del mensaje ya vive
+            # en `mensajes`, y aquí no se duplica ni se anota qué frase
+            # disparó la alerta.
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS alertas_crisis (
+                    id SERIAL PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    mensaje_id INTEGER,
+                    nivel TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    FOREIGN KEY (mensaje_id) REFERENCES mensajes(id) ON DELETE SET NULL
+                )
+            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_alertas_session ON alertas_crisis(session_id)")
+
 
 def guardar_mensaje(session_id, rol, texto, emocion_estimada=None, confianza=None,
                      camara_usada=False, senales_observables=None, calidad_deteccion=None):
@@ -197,6 +213,29 @@ def usos_por_categoria(session_id):
             return {f["categoria"]: f["total"] for f in cur.fetchall()}
 
 
+def registrar_alerta_crisis(session_id, mensaje_id, nivel="crisis"):
+    """Registra que se disparó el mensaje de apoyo por riesgo de crisis.
+    No guarda el texto ni la frase detectada -- solo nivel y momento."""
+    with _conexion() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO alertas_crisis (session_id, mensaje_id, nivel, timestamp)
+                   VALUES (%s, %s, %s, %s)""",
+                (session_id, mensaje_id, nivel, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            )
+
+
+def contar_alertas_crisis(session_id):
+    """Cuántas veces se activó la capa de crisis en esta sesión (uso interno/futuro)."""
+    with _conexion() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                "SELECT COUNT(*) as total FROM alertas_crisis WHERE session_id = %s",
+                (session_id,)
+            )
+            return cur.fetchone()["total"]
+
+
 def borrar_todo(session_id):
     """Borra SOLO los datos de esta sesión (derecho de privacidad del usuario sobre sus propios datos)."""
     with _conexion() as conn:
@@ -208,3 +247,4 @@ def borrar_todo(session_id):
             )
             cur.execute("DELETE FROM mensajes WHERE session_id = %s", (session_id,))
             cur.execute("DELETE FROM uso_herramientas WHERE session_id = %s", (session_id,))
+            cur.execute("DELETE FROM alertas_crisis WHERE session_id = %s", (session_id,))

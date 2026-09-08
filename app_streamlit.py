@@ -16,7 +16,7 @@ from emociones_config import EMOJIS_GATO, COLOR_HERRAMIENTAS, ETIQUETAS_ANIMO
 from gatito_widget import generar_gatito_html
 import visual_pipeline
 from temporal_analysis import AnalizadorTemporal
-import database as db
+import database as gora_local.db
 from herramientas import CATEGORIAS, herramientas_por_categoria, obtener_herramienta
 import deteccion_crisis
 import dialogo_emocional

@@ -1,6 +1,6 @@
 venv_emociones/
 gora_local.db
-database.py
+
 gora_local.db/
 DATABASE_URL = "postgresql://aggm:G8Oi7BLdKvw4gT8hgD4ASarZ14o4TTUg@dpg-da2e1nr7uimc73a5b290-a.oregon-postgres.render.com/gora_db?sslmode=require"
 .streamlit\secrets.toml

@@ -1,0 +1,10 @@
+venv_emociones/
+venv_emociones311/
+__pycache__/
+*.pyc
+.git/
+.gitignore
+.devcontainer/
+gora_local.db
+.streamlit/secrets.toml
+README.md

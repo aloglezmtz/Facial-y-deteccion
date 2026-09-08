@@ -283,15 +283,18 @@ st.markdown(f"""
 
 @st.cache_resource
 def cargar_analizador_texto():
+    # No se llama aquí arriba a propósito: pysentimiento carga PyTorch +
+    # un modelo transformer completo, y antes esta línea se ejecutaba en
+    # cuanto se abría la página, sin importar si el usuario iba a chatear
+    # o no. Ahora solo se dispara la primera vez que alguien manda un
+    # mensaje (ver más abajo), gracias a @st.cache_resource sigue
+    # cargándose una sola vez por proceso.
     return AnalizadorEmocionTexto()
-
-
-analizador_texto = cargar_analizador_texto()
 
 if "historial_chat" not in st.session_state:
     st.session_state.historial_chat = db.cargar_chat(sid)
 if "emocion_actual" not in st.session_state:
-    ultimos = st.session_state.historial_chat  
+    ultimos = st.session_state.historial_chat
     st.session_state.emocion_actual = ultimos[-1]["emocion"] if ultimos else "neutral"
 if "analizador_temporal" not in st.session_state:
     st.session_state.analizador_temporal = AnalizadorTemporal()
@@ -439,7 +442,10 @@ with tab_chat:
 
     foto = None
     if camara_disponible:
-        if visual_pipeline.DISPONIBLE:
+        # esta_disponible() carga cv2/mediapipe/deepface la PRIMERA VEZ que
+        # alguien activa este toggle -- no antes. Así, si nadie usa la
+        # cámara en una sesión, esas librerías (y su memoria) nunca se tocan.
+        if visual_pipeline.esta_disponible():
             foto = st.camera_input("Toma una foto de tu rostro", label_visibility="collapsed")
         else:
             motivo = getattr(visual_pipeline, "_MOTIVO_NO_DISPONIBLE", None)
@@ -583,7 +589,7 @@ with tab_chat:
                 # Mensaje nuevo: se calcula la emoción primaria (fusión visual+
                 # texto) como antes, pero en vez de anunciarla con un % de
                 # confianza, el gatito PREGUNTA para llegar a algo más preciso.
-                emocion_texto, vector_texto = analizador_texto.analizar(texto_usuario)
+                emocion_texto, vector_texto = cargar_analizador_texto().analizar(texto_usuario)
 
                 vector_visual = None
                 resultado_visual = None

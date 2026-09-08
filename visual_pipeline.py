@@ -14,23 +14,52 @@ texto, detección de crisis) sigue funcionando con normalidad. Una falla en
 el canal visual OPCIONAL nunca debe tumbar la app completa.
 """
 
-DISPONIBLE = True
+# CARGA PEREZOSA: cv2/mediapipe/deepface (y TensorFlow, que deepface arrastra)
+# ya NO se importan aquí arriba. Antes se cargaban en cuanto algo hacía
+# `import visual_pipeline` -- es decir, apenas arrancaba la app, sin
+# importar si alguien usaba la cámara o no. Eso consumía cientos de MB de
+# RAM desde el primer segundo. Ahora solo se cargan la primera vez que
+# esta_disponible() o analizar_imagen() se llaman de verdad.
+DISPONIBLE = None  # None = todavía no se intentó cargar
 _MOTIVO_NO_DISPONIBLE = None
-try:
-    import cv2
-    import mediapipe as mp
-    from deepface import DeepFace
+cv2 = None
+DeepFace = None
+_face_mesh = None
 
-    _mp_face_mesh = mp.solutions.face_mesh
-    _face_mesh = _mp_face_mesh.FaceMesh(
-        max_num_faces=1,
-        refine_landmarks=True,
-        min_detection_confidence=0.5,
-        min_tracking_confidence=0.5,
-    )
-except Exception as _error_inicializacion:
-    DISPONIBLE = False
-    _MOTIVO_NO_DISPONIBLE = str(_error_inicializacion)
+
+def _asegurar_cargado():
+    """Importa e inicializa cv2/mediapipe/deepface la primera vez que se necesitan.
+    Llamadas posteriores no hacen nada (ya quedó cargado o ya falló antes)."""
+    global DISPONIBLE, _MOTIVO_NO_DISPONIBLE, cv2, DeepFace, _face_mesh
+    if DISPONIBLE is not None:
+        return
+
+    try:
+        import cv2 as _cv2
+        import mediapipe as mp
+        from deepface import DeepFace as _DeepFace
+
+        cv2 = _cv2
+        DeepFace = _DeepFace
+        _mp_face_mesh = mp.solutions.face_mesh
+        _face_mesh = _mp_face_mesh.FaceMesh(
+            max_num_faces=1,
+            refine_landmarks=True,
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5,
+        )
+        DISPONIBLE = True
+    except Exception as _error_inicializacion:
+        DISPONIBLE = False
+        _MOTIVO_NO_DISPONIBLE = str(_error_inicializacion)
+
+
+def esta_disponible():
+    """Úsalo en vez de leer DISPONIBLE directamente: dispara la carga
+    perezosa la primera vez y devuelve True/False de forma confiable."""
+    _asegurar_cargado()
+    return DISPONIBLE
+
 
 from emociones_config import MAPEO_VISUAL, EMOCIONES
 from facial_features import extraer_senales
@@ -62,6 +91,7 @@ def analizar_imagen(frame_bgr, analizador_temporal=None):
         "analisis_temporal": {...}  (si se pasó un AnalizadorTemporal)
     }
     """
+    _asegurar_cargado()
     if not DISPONIBLE:
         return {"rostro_detectado": False, "calidad_deteccion": "librerias_no_instaladas",
                 "senales_observables": None, "interpretacion": None}

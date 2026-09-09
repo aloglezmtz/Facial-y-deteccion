@@ -77,16 +77,56 @@ st.set_page_config(page_title="Gatitos Emocionales", page_icon="🐾", layout="c
 db.inicializar_db()
 
 # ---------------------------------------------------------
-# Identidad anónima por navegador: cada usuario obtiene un
-# session_id propio, guardado en la URL para sobrevivir a
-# recargas de página. Nunca se comparte entre usuarios.
+# Identidad anónima por navegador, vía COOKIE (ya no por URL).
+# Antes el identificador viajaba pegado al link (?sid=...): si esa URL
+# se compartía o se guardaba como favorito, la otra persona heredaba
+# la misma sesión y veía los mismos datos. Ahora vive en una cookie
+# de sesión del navegador: nunca aparece en el link, y cada navegador/
+# dispositivo obtiene la suya propia. Al no ponerle fecha de
+# vencimiento, el navegador la borra solo al cerrarse por completo
+# (no al recargar la página ni al cambiar de pestaña).
 # ---------------------------------------------------------
+import extra_streamlit_components as stx
+
+
+def _obtener_cookie_manager():
+    if "cookie_manager" not in st.session_state:
+        st.session_state.cookie_manager = stx.CookieManager(key="gora_cookie_manager")
+    return st.session_state.cookie_manager
+
+
+cookie_manager = _obtener_cookie_manager()
+cookie_manager._remove_extra_spacing()  # esconde el iframe invisible de las cookies
+
 if "session_id" not in st.session_state:
-    sid_en_url = st.query_params.get("sid")
-    if not sid_en_url:
-        sid_en_url = str(uuid.uuid4())
-        st.query_params["sid"] = sid_en_url
-    st.session_state.session_id = sid_en_url
+    # default=None (no {}) para distinguir "todavía no responde el
+    # componente" de "ya respondió y de verdad no hay cookie".
+    cookies_actuales = cookie_manager.cookie_manager(
+        method="getAll", key="gora_get_all_cookies", default=None
+    )
+
+    if cookies_actuales is None:
+        # El componente de cookies aún no reportó su valor real en este
+        # primer render. Streamlit vuelve a correr el script solo en
+        # cuanto llegue -- no decidimos nada todavía para no pisar una
+        # cookie que ya exista.
+        st.stop()
+
+    sid_en_cookie = cookies_actuales.get("gora_sid")
+    if sid_en_cookie:
+        st.session_state.session_id = sid_en_cookie
+    else:
+        nuevo_sid = str(uuid.uuid4())
+        cookie_manager._remove_extra_spacing()
+        cookie_manager.cookie_manager(
+            method="set",
+            cookie="gora_sid",
+            value=nuevo_sid,
+            options={"path": "/", "sameSite": "strict"},  # sin "expires" => cookie de sesión
+            key="gora_set_sid",
+            default=False,
+        )
+        st.session_state.session_id = nuevo_sid
 
 sid = st.session_state.session_id
 

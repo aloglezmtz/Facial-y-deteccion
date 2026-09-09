@@ -17,10 +17,47 @@ Flujo:
 """
 
 import random
+import re
 
 from rueda_emociones import opciones_secundarias, opciones_terciarias
 from emociones_config import EMOJIS_GATO
 from herramientas import herramientas_por_categoria
+
+
+# ---------------------------------------------------------------
+# Mensajes de CIERRE ("gracias", "estoy bien así", "ok"...): cuando el
+# usuario ya recibió aliento/herramienta y solo quiere cerrar la
+# conversación, no tiene sentido relanzar toda la rueda de emociones.
+# Se detectan por patrones cortos y comunes -- no es perfecto, pero evita
+# el caso más molesto: agradecer y que el gatito vuelva a preguntar "¿te
+# sentiste más tranquilo o indiferente?".
+# ---------------------------------------------------------------
+_PATRONES_CIERRE = [
+    r"^gracias\b", r"\bgracias\b", r"^ok\b", r"^okay\b", r"^vale\b",
+    r"^grax\b", r"estoy bien", r"ya estoy mejor", r"nada m[aá]s",
+    r"eso es todo", r"^de nada\b", r"^listo\b", r"^genial\b",
+    r"as[ií] est[aá] bien", r"^gracias por escuchar",
+]
+
+
+def es_mensaje_de_cierre(texto: str) -> bool:
+    """True si el mensaje parece un cierre/agradecimiento corto, no un
+    tema nuevo que amerite volver a preguntar sobre la emoción."""
+    texto_normalizado = (texto or "").strip().lower()
+    if not texto_normalizado or len(texto_normalizado.split()) > 8:
+        return False
+    return any(re.search(p, texto_normalizado) for p in _PATRONES_CIERRE)
+
+
+_RESPUESTAS_CIERRE = [
+    "Con gusto 🐾 Aquí sigo si quieres platicar de nuevo o contarme cómo te fue.",
+    "Cuando quieras 🐾 Aquí estoy si necesitas hablar o darle seguimiento a esto.",
+    "Para eso estoy 🐾 Vuelve cuando quieras, con esto o con lo que sea.",
+]
+
+
+def respuesta_cierre() -> str:
+    return random.choice(_RESPUESTAS_CIERRE)
 
 
 def iniciar_dialogo(primaria: str, contexto: str, confianza: float, incongruencia: bool) -> dict:

@@ -676,6 +676,21 @@ with tab_chat:
                             dialogo["confianza"] / 100 if dialogo["confianza"] is not None else None,
                             False, emocion_especifica=dialogo_emocional.etiqueta_especifica(dialogo))
 
+            elif st.session_state.historial_chat and dialogo_emocional.es_mensaje_de_cierre(texto_usuario):
+                # El usuario está cerrando la conversación (un "gracias",
+                # "estoy bien así", etc.), no abriendo un tema nuevo. No tiene
+                # sentido volver a lanzar toda la rueda de emociones por esto
+                # -- se responde corto y cálido, y listo.
+                respuesta = dialogo_emocional.respuesta_cierre()
+
+                st.session_state.historial_chat.append(
+                    {"rol": "user", "texto": texto_usuario, "emocion": st.session_state.emocion_actual, "timestamp": _ahora()})
+                st.session_state.historial_chat.append(
+                    {"rol": "assistant", "texto": respuesta, "emocion": st.session_state.emocion_actual, "timestamp": _ahora()})
+
+                db.guardar_mensaje(sid, "user", texto_usuario, st.session_state.emocion_actual)
+                db.guardar_mensaje(sid, "assistant", respuesta, st.session_state.emocion_actual)
+
             else:
                 # Mensaje nuevo: se calcula la emoción primaria (fusión visual+
                 # texto) como antes, pero en vez de anunciarla con un % de

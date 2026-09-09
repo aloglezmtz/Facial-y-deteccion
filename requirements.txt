@@ -10,7 +10,7 @@ deepface
 tf-keras
 pillow
 numpy
-
+extra-streamlit-components
 
 
  

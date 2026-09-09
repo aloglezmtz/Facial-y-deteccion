@@ -470,6 +470,11 @@ with tab_inicio:
 # PESTAÑA 1: CHAT — protagonista, sin ruido técnico
 # ===========================================================
 with tab_chat:
+    # El gatito grande reacciona en vivo a la última emoción detectada/elegida
+    # en la conversación (se actualiza solo, porque emocion_mostrada ya se
+    # recalcula arriba cada vez que el script vuelve a correr).
+    components.html(generar_gatito_html(emocion_mostrada or "neutral"), height=170)
+
     col1, col2 = st.columns([3, 1])
     with col1:
         camara_disponible = st.toggle(
@@ -528,22 +533,23 @@ with tab_chat:
             dialogo = st.session_state.dialogo_emocion
             with st.chat_message("assistant", avatar=avatar_bot):
                 st.write(dialogo_emocional.texto_pregunta(dialogo))
-                cols = st.columns(len(dialogo["opciones"]))
-                for i, opcion in enumerate(dialogo["opciones"]):
-                    with cols[i]:
-                        if st.button(opcion.capitalize(), key=f"opt_{dialogo['paso']}_{opcion}",
-                                     use_container_width=True):
-                            nuevo_dialogo, respuesta_final = dialogo_emocional.avanzar_dialogo(dialogo, opcion)
-                            st.session_state.dialogo_emocion = nuevo_dialogo
-                            if respuesta_final:
-                                st.session_state.emocion_actual = dialogo["primaria"]
-                                st.session_state.historial_chat.append(
-                                    {"rol": "assistant", "texto": respuesta_final, "emocion": dialogo["primaria"], "timestamp": _ahora()})
-                                db.guardar_mensaje(
-                                    sid, "assistant", respuesta_final, dialogo["primaria"],
-                                    dialogo["confianza"] / 100 if dialogo["confianza"] is not None else None,
-                                    False, emocion_especifica=dialogo_emocional.etiqueta_especifica(dialogo))
-                            st.rerun()
+                if dialogo["paso"] not in ("razon", "seguimiento"):
+                    cols = st.columns(len(dialogo["opciones"]))
+                    for i, opcion in enumerate(dialogo["opciones"]):
+                        with cols[i]:
+                            if st.button(opcion.capitalize(), key=f"opt_{dialogo['paso']}_{opcion}",
+                                         use_container_width=True):
+                                nuevo_dialogo, respuesta_final = dialogo_emocional.avanzar_dialogo(dialogo, opcion)
+                                st.session_state.dialogo_emocion = nuevo_dialogo
+                                if respuesta_final:
+                                    st.session_state.emocion_actual = dialogo["primaria"]
+                                    st.session_state.historial_chat.append(
+                                        {"rol": "assistant", "texto": respuesta_final, "emocion": dialogo["primaria"], "timestamp": _ahora()})
+                                    db.guardar_mensaje(
+                                        sid, "assistant", respuesta_final, dialogo["primaria"],
+                                        dialogo["confianza"] / 100 if dialogo["confianza"] is not None else None,
+                                        False, emocion_especifica=dialogo_emocional.etiqueta_especifica(dialogo))
+                                st.rerun()
 
     # Reacción rápida: tocar un emoji registra el ánimo sin necesidad de
     # escribir. Se oculta mientras hay una pregunta de la rueda pendiente,
@@ -596,6 +602,51 @@ with tab_chat:
                 id_mensaje_usuario = db.guardar_mensaje(sid, "user", texto_usuario, st.session_state.emocion_actual)
                 db.guardar_mensaje(sid, "assistant", respuesta, st.session_state.emocion_actual)
                 db.registrar_alerta_crisis(sid, id_mensaje_usuario, riesgo["nivel"])
+
+            elif (st.session_state.dialogo_emocion is not None
+                  and st.session_state.dialogo_emocion["paso"] == "razon"):
+                # El usuario ya vio el desglose de su emoción (rueda) y ahora
+                # contó, en texto libre, qué está pasando -- antes de cerrar,
+                # se hace UNA pregunta corta de seguimiento (empatía breve).
+                dialogo = st.session_state.dialogo_emocion
+
+                st.session_state.historial_chat.append(
+                    {"rol": "user", "texto": texto_usuario, "emocion": dialogo["primaria"], "timestamp": _ahora()})
+                db.guardar_mensaje(sid, "user", texto_usuario, dialogo["primaria"])
+
+                nuevo_dialogo = dialogo_emocional.avanzar_a_seguimiento(dialogo, texto_usuario)
+                respuesta = f"{dialogo_emocional.acuse_corto()} {dialogo_emocional.texto_pregunta(nuevo_dialogo)}"
+
+                st.session_state.dialogo_emocion = nuevo_dialogo
+                st.session_state.historial_chat.append(
+                    {"rol": "assistant", "texto": respuesta, "emocion": dialogo["primaria"], "timestamp": _ahora()})
+                db.guardar_mensaje(sid, "assistant", respuesta, dialogo["primaria"])
+
+            elif (st.session_state.dialogo_emocion is not None
+                  and st.session_state.dialogo_emocion["paso"] == "seguimiento"):
+                # Respuesta a la pregunta corta de seguimiento -- con esto
+                # (más la razón de antes) ya se cierra con aliento + herramienta.
+                dialogo = st.session_state.dialogo_emocion
+
+                st.session_state.historial_chat.append(
+                    {"rol": "user", "texto": texto_usuario, "emocion": dialogo["primaria"], "timestamp": _ahora()})
+                db.guardar_mensaje(sid, "user", texto_usuario, dialogo["primaria"])
+
+                texto_para_analizar = f"{dialogo.get('razon', '')} {texto_usuario}"
+                herramienta = dialogo_emocional.sugerir_herramienta(dialogo, texto_para_analizar)
+                respuesta = dialogo_emocional.responder_con_apoyo(dialogo, texto_para_analizar, herramienta)
+
+                st.session_state.historial_chat.append(
+                    {"rol": "assistant", "texto": respuesta, "emocion": dialogo["primaria"], "timestamp": _ahora()})
+                db.guardar_mensaje(
+                    sid, "assistant", respuesta, dialogo["primaria"],
+                    dialogo["confianza"] / 100 if dialogo["confianza"] is not None else None,
+                    False, emocion_especifica=dialogo_emocional.etiqueta_especifica(dialogo))
+
+                if herramienta:
+                    db.registrar_uso_herramienta(sid, herramienta["id"], herramienta["categoria"])
+
+                st.session_state.dialogo_emocion = None  # el diálogo ya terminó del todo
 
             elif st.session_state.dialogo_emocion is not None:
                 # El usuario respondió escribiendo en vez de tocar un botón:

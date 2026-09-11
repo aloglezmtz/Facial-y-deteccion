@@ -444,6 +444,41 @@ with tab_inicio:
         st.caption(f"🔥 {racha} día(s) con entrada en los últimos 30 días.")
     st.markdown('</div>', unsafe_allow_html=True)
 
+    # ---- Diario del día (nuevo, separado -- espacio libre para contar cómo estuvo el día) ----
+    st.markdown('<div class="tarjeta-inicio">', unsafe_allow_html=True)
+    st.markdown('<div class="tarjeta-inicio-titulo">📔 Diario del día</div>', unsafe_allow_html=True)
+    diario_hoy = db.diario_dia_de_hoy(sid)
+    if diario_hoy:
+        st.markdown(f'<div class="tarjeta-inicio-cuerpo">✅ Ya escribiste sobre tu día hoy.</div>',
+                    unsafe_allow_html=True)
+        with st.expander("Ver / editar lo de hoy"):
+            nuevo_diario = st.text_area("¿Cómo estuvo tu día?",
+                                         value=diario_hoy, key="editar_diario_dia", height=150)
+            if st.button("Actualizar", key="btn_actualizar_diario_dia"):
+                if nuevo_diario.strip():
+                    db.guardar_diario_dia(sid, nuevo_diario.strip())
+                    st.rerun()
+    else:
+        texto_diario_dia = st.text_area("¿Cómo estuvo tu día? Escribe lo que quieras, sin filtro.",
+                                         key="nuevo_diario_dia", height=150,
+                                         placeholder="Hoy...")
+        if st.button("Guardar", key="btn_guardar_diario_dia", use_container_width=True):
+            if texto_diario_dia.strip():
+                db.guardar_diario_dia(sid, texto_diario_dia.strip())
+                st.rerun()
+            else:
+                st.warning("Escribe algo antes de guardar.")
+    with st.expander("Ver entradas anteriores"):
+        entradas = db.historial_diario_dia(sid)
+        anteriores = [e for e in entradas if e["fecha"] != datetime.now().strftime("%Y-%m-%d")]
+        if not anteriores:
+            st.caption("Todavía no hay entradas de días anteriores.")
+        for entrada in anteriores:
+            st.markdown(f"**{entrada['fecha']}**")
+            st.write(entrada["texto"])
+            st.markdown("---")
+    st.markdown('</div>', unsafe_allow_html=True)
+
     # ---- Actividad recomendada (según "Configurar mi rutina" en Ajustes) ----
     categoria_sugerida_inicio = OBJETIVO_A_CATEGORIA.get(perfil.get("objetivo"))
     if categoria_sugerida_inicio and categoria_sugerida_inicio in CATEGORIAS:
@@ -739,6 +774,17 @@ with tab_chat:
                         "emocion": emocion_final,
                         "timestamp": _ahora(),
                     })
+                elif (usar_camara_en_fusion and resultado_visual
+                      and resultado_visual["interpretacion"].get("gesto_principal")):
+                    gesto = resultado_visual["interpretacion"]["gesto_principal"]
+                    if resultado_visual["interpretacion"]["lectura_estable"]:
+                        texto_gesto = f"📷 *Por tu foto noté: {gesto}.*"
+                    else:
+                        texto_gesto = (f"📷 *Por tu foto noté: {gesto} -- aunque la lectura no fue muy "
+                                        f"clara, así que le doy más peso a lo que escribiste.*")
+                    st.session_state.historial_chat.append({
+                        "rol": "assistant", "texto": texto_gesto, "emocion": emocion_final, "timestamp": _ahora(),
+                    })
 
                 st.session_state.dialogo_emocion = dialogo_emocional.iniciar_dialogo(
                     emocion_final, texto_usuario, confianza, incongruencia)
@@ -890,6 +936,10 @@ with tab_tecnico:
         colA, colB = st.columns(2)
         colA.metric("Emoción con mayor probabilidad", interp["emocion_dominante"])
         colB.metric("Confianza", f"{interp['confianza']*100:.0f}%")
+        if interp.get("gesto_principal"):
+            st.caption(f"Gesto observado: {interp['gesto_principal']}")
+        if interp.get("lectura_estable") is False:
+            st.caption("⚠️ Lectura ambigua: las dos emociones con más probabilidad estaban muy cerca.")
         st.caption(f"Calidad de la detección: {r['calidad_deteccion']}")
 
         resumen_temporal = st.session_state.analizador_temporal.resumen()

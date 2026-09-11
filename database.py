@@ -151,6 +151,19 @@ def inicializar_db():
             """)
             cur.execute("CREATE INDEX IF NOT EXISTS idx_gratitud_session ON diario_gratitud(session_id)")
 
+            # 8. Diario del día (nuevo, separado del de gratitud -- espacio
+            # libre para escribir cómo estuvo el día, no solo una gratitud)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS diario_dia (
+                    id SERIAL PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    texto TEXT NOT NULL,
+                    fecha TEXT NOT NULL,        -- 'YYYY-MM-DD', una entrada por día
+                    timestamp TEXT NOT NULL
+                )
+            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_diario_dia_session ON diario_dia(session_id)")
+
 
 def guardar_mensaje(session_id, rol, texto, emocion_estimada=None, confianza=None,
                      camara_usada=False, senales_observables=None, calidad_deteccion=None,
@@ -378,6 +391,47 @@ def racha_gratitud(session_id, dias=30):
             return cur.fetchone()["total"]
 
 
+def guardar_diario_dia(session_id, texto):
+    """Diario del día (texto libre) -- una entrada por día, la reemplaza si ya escribiste hoy."""
+    hoy = datetime.now().strftime("%Y-%m-%d")
+    ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with _conexion() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM diario_dia WHERE session_id = %s AND fecha = %s",
+                (session_id, hoy)
+            )
+            cur.execute(
+                "INSERT INTO diario_dia (session_id, texto, fecha, timestamp) VALUES (%s, %s, %s, %s)",
+                (session_id, texto[:3000], hoy, ahora)
+            )
+
+
+def diario_dia_de_hoy(session_id):
+    """Devuelve el texto del diario de hoy, o None si todavía no ha escrito nada."""
+    hoy = datetime.now().strftime("%Y-%m-%d")
+    with _conexion() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                "SELECT texto FROM diario_dia WHERE session_id = %s AND fecha = %s",
+                (session_id, hoy)
+            )
+            fila = cur.fetchone()
+            return fila["texto"] if fila else None
+
+
+def historial_diario_dia(session_id, limite=30):
+    """Últimas entradas del diario del día, más reciente primero."""
+    with _conexion() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """SELECT fecha, texto FROM diario_dia WHERE session_id = %s
+                   ORDER BY fecha DESC LIMIT %s""",
+                (session_id, limite)
+            )
+            return cur.fetchall()
+
+
 def borrar_todo(session_id):
     """Borra SOLO los datos de esta sesión (derecho de privacidad del usuario sobre sus propios datos)."""
     with _conexion() as conn:
@@ -391,3 +445,4 @@ def borrar_todo(session_id):
             cur.execute("DELETE FROM uso_herramientas WHERE session_id = %s", (session_id,))
             cur.execute("DELETE FROM alertas_crisis WHERE session_id = %s", (session_id,))
             cur.execute("DELETE FROM diario_gratitud WHERE session_id = %s", (session_id,))
+            cur.execute("DELETE FROM diario_dia WHERE session_id = %s", (session_id,))

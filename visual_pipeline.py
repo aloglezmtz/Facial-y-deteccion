@@ -62,7 +62,7 @@ def esta_disponible():
 
 
 from emociones_config import MAPEO_VISUAL, EMOCIONES
-from facial_features import extraer_senales
+from facial_features import extraer_senales, describir_gesto
 
 
 def _extraer_roi(frame_bgr, landmarks, padding=20):
@@ -107,7 +107,8 @@ def analizar_imagen(frame_bgr, analizador_temporal=None):
     senales = extraer_senales(landmarks, frame_bgr.shape)
     roi = _extraer_roi(frame_bgr, landmarks)
 
-    interpretacion = {"vector_probabilidades": None, "emocion_dominante": None, "confianza": 0.0}
+    interpretacion = {"vector_probabilidades": None, "emocion_dominante": None, "confianza": 0.0,
+                       "gesto_principal": None, "lectura_estable": None}
     calidad = "buena"
 
     if roi.size == 0:
@@ -124,10 +125,19 @@ def analizar_imagen(frame_bgr, analizador_temporal=None):
                 if comun:
                     vector[comun] = valor / 100.0
             emocion_dominante = max(vector, key=vector.get)
+
+            # Qué tan clara fue la lectura: si la emoción con más probabilidad
+            # y la segunda están muy cerca, es una lectura ambigua -- mejor
+            # decirlo que fingir una certeza que no hay.
+            probs_ordenadas = sorted(vector.values(), reverse=True)
+            margen = probs_ordenadas[0] - probs_ordenadas[1] if len(probs_ordenadas) > 1 else 1.0
+
             interpretacion = {
                 "vector_probabilidades": vector,
                 "emocion_dominante": emocion_dominante,
                 "confianza": vector[emocion_dominante],
+                "gesto_principal": describir_gesto(senales),
+                "lectura_estable": margen >= 0.15,
             }
         except Exception:
             calidad = "clasificacion_fallida"

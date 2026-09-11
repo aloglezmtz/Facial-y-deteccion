@@ -98,6 +98,41 @@ def estimar_orientacion_cabeza(landmarks, w, h):
     }
 
 
+def describir_gesto(senales: dict) -> str:
+    """
+    Traduce las señales geométricas a una frase corta y legible, para poder
+    decirle al usuario QUÉ gesto se observó (transparencia), sin inventar
+    una emoción -- eso lo sigue decidiendo el modelo de clasificación.
+    Los umbrales son heurísticos (no una calibración clínica) y se pueden
+    ajustar con uso real.
+    """
+    partes = []
+
+    cejas = senales["elevacion_cejas"]
+    if cejas > 0.42:
+        partes.append("cejas muy elevadas")
+    elif cejas > 0.32:
+        partes.append("cejas algo elevadas")
+    else:
+        partes.append("cejas relajadas")
+
+    if senales["ojo_probablemente_cerrado"]:
+        partes.append("ojos cerrados o entrecerrados")
+    elif senales["apertura_ojo_promedio"] > 0.34:
+        partes.append("ojos muy abiertos")
+    else:
+        partes.append("ojos en apertura normal")
+
+    if senales["boca_probablemente_abierta"]:
+        partes.append("boca abierta")
+    elif senales["apertura_boca"] > 0.25:
+        partes.append("boca entreabierta")
+    else:
+        partes.append("boca cerrada")
+
+    return ", ".join(partes)
+
+
 def extraer_senales(landmarks, frame_shape):
     """
     Punto de entrada: recibe landmarks de un frame y devuelve un diccionario

@@ -5,3 +5,7 @@ git add .
 git commit -m "Fix: corrección de dependencias y versiones en xxxx"
 
 git push origin main
+
+
+link: 
+https://gora-facial-detection.streamlit.app/
